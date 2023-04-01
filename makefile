@@ -1,5 +1,5 @@
 all:
-	g++ -c calculation.cpp -mavx2 -DAVX_ON -O1 -o calculation.o
+	g++ -c calculation.cpp -mavx2 -DAVX_ON -DDRAW -O1 -o calculation.o
 	g++ calculation.o -o mndl -lsfml-graphics -lsfml-window -lsfml-system -lsfml-audio
 	./mndl
 
