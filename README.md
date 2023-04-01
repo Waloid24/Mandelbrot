@@ -1,8 +1,8 @@
 # Mandelbrot
 As part of this project, I wrote code that shows the Mandelbrot factorial set. You can press:
-- `\2191` to raise the picture;
-- `&#8593;` to lower the picture;
-- `&#8594;` to move the picture to the right;
+- <kbd>\2191</kbd> to raise the picture;
+- <kbd>&#8593;</kbd> to lower the picture;
+- <kbd>&#8594;<kbd> to move the picture to the right;
 - `&#8592;` to move the picture to the left;
 - <kbd>F1</kbd> to zoom in;
 - <kbd>F2</kbd> to zoom out.
