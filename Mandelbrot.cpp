@@ -1,21 +1,18 @@
 #include "calculation.hpp"
 
-// #define AVX_ON
-
-// #define DRAW
+int mandelbrot(void);
+void outputMndlbrtAvx (Texture * pixels, float center_x, float center_y);
 
 using namespace sf;
 
-int mandelbrot(void);
-void outputFps(RenderWindow &window, sf::Clock *clock, sf::Text *text);
-void outputMndlbrt(RenderWindow &window, float center_x, float center_y);
-void outputMndlbrtAvx(RenderWindow &window, float center_x, float center_y);
-
 const int SIZE_OF_TEXT = 15;
 
-int main(void)
+
+
+int main (void)
 {
     mandelbrot();
+
     return 0;
 }
 
@@ -41,6 +38,10 @@ int mandelbrot(void)
 
     Clock clock; // for FPS
     bool DRAW_MADL = 0;
+
+    Texture pixels;
+    pixels.create(WINDOW_SIZE_X, WINDOW_SIZE_Y);
+    outputMndlbrtAvx (&pixels, center_x, center_y);
 
     while (window.isOpen())
     {
@@ -125,104 +126,6 @@ sf::RectangleShape createRectangle(float width, float height, float x, float y)
     return rectangle;
 }
 
-
-//                      (or 2*BORDER=6)
-//          <------------1200--|----------> 
-//          =============================== |
-//       |  ||             |   |         || |         [   Xc = center_x   ]
-//       |  ||             |   |         || |         [ relative to (0,0) ] new coordinate system
-//       |  ||             |   | .(x0,y0)|| |         [   Yc = center_y   ]
-// y_max |  ||             |   |         || |
-//       |  ||        (0,0)|   |         || 1 (or 2*BORDER=6)
-//       |  ||-------------|-------------|| 2 --->
-//       |  ||             |   |         || 0
-//   - - - -||- - - - - - -|- -.(Xc,Yc)- || 0 - ->
-//          ||             |   |         || |   |
-//          ||             |   |         || |   |y_min
-//          ||             |   |         || |   |
-//          =============================== |
-//          <------600----->   |         |
-//                             |         |
-//          <------x_min------>|<-x_max->|
-//
-
-
-void outputMndlbrtAvx(RenderWindow &window, float center_x, float center_y)
-{
-    RectangleShape pixel = createRectangle(1, 1, 0, 0);
-
-    __m256 density     = _mm256_set1_ps(WINDOW_SIZE_X/(2*BORDER));
-    __m256 max_rad_vec = _mm256_set1_ps(MAX_DISTANCE);
-    __m256 shift_dx    = _mm256_set_ps (0, dx, 2*dx, 3*dx, 4*dx, 5*dx, 6*dx, 7*dx);
-
-    float x_min = -BORDER - center_x, x_max = BORDER - center_x;
-    float y_min = -BORDER - center_y, y_max = BORDER - center_y;
-
-    // float x_min = -BORDER;
-    // float y_max = BORDER;
-
-    __m256 shift_x = _mm256_set1_ps (-x_min);
-    __m256 shift_y = _mm256_set1_ps (y_max);
-
-    // for (float y0 = -BORDER; y0 <= BORDER; y0 += dy)
-    for (float y0 = y_min; y0 <= y_max; y0 += dy)
-    {
-        __m256 y0_vec = _mm256_set1_ps(y0);
-        __m256 y0_vec_pos = _mm256_mul_ps(_mm256_sub_ps(shift_y, y0_vec), density);
-
-        for (float x0 = x_min; x0 <= x_max; x0 += 8*dx)
-        {
-            __m256 x0_vec = _mm256_add_ps(_mm256_set1_ps(x0), shift_dx);
-            __m256 x0_vec_pos = _mm256_mul_ps(_mm256_add_ps(shift_x, x0_vec), density);
-
-            __m256i numIteration = _mm256_set1_epi32(0);
-            int counter = 0;
-
-            for (__m256 x = x0_vec, y = y0_vec; counter < MAX_ITERATION; counter++)
-            {
-                __m256 x2_vec = _mm256_mul_ps(x, x);
-                __m256 y2_vec = _mm256_mul_ps(y, y);
-                __m256 xy_vec = _mm256_mul_ps(x, y);
-
-                __m256 radius_vec = _mm256_add_ps (x2_vec, y2_vec);
-
-                __m256 cmp_res = _mm256_cmp_ps (max_rad_vec, radius_vec, _CMP_GT_OS); // comparing each distance with max len
-                int comparison_mask = _mm256_movemask_ps(cmp_res);                   // moves the most significant bit of each float to integer bits
-
-                if (!comparison_mask)                                                // if all points out of range then break
-                {
-                    break;
-                }
-
-                numIteration = _mm256_sub_epi32 (numIteration, _mm256_castps_si256 (cmp_res));
-
-                x = _mm256_add_ps(_mm256_sub_ps(x2_vec, y2_vec), x0_vec); 
-                y = _mm256_add_ps(_mm256_add_ps(xy_vec, xy_vec), y0_vec);
-            }
-
-            uint32_t * iterationArray = (uint32_t *) &numIteration;
-            float * xCoord = (float *) &x0_vec_pos;
-            float * yCoord = (float *) &y0_vec_pos;
-
-            for (int cntr = 0; cntr < 8; cntr++)
-            {
-                pixel.setPosition (xCoord[cntr], yCoord[cntr]);
-                pixel.setFillColor (Color(255, 242, 245));
-                int n = iterationArray[cntr];
-
-                if (n < MAX_ITERATION)
-                {
-                    pixel.setFillColor(Color((uint8_t)n * 30, (uint8_t)n * 5, 255 - (uint8_t)n));
-                }
-                
-                #ifdef DRAW
-                    window.draw (pixel);
-                #endif
-            }
-        }
-    }
-}
-
 void outputMndlbrt(RenderWindow &window, float center_x, float center_y)
 {
     RectangleShape pixel = createRectangle(1, 1, 0, 0);
@@ -269,4 +172,11 @@ void outputMndlbrt(RenderWindow &window, float center_x, float center_y)
             #endif
         }
     }
+}
+
+void outputMndlbrtAvx (Texture * pixels, float center_x, float center_y)
+{
+    assert (pixels);
+
+    
 }
