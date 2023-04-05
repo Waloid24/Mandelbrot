@@ -1,13 +1,12 @@
 #include "calculation.hpp"
 
 int mandelbrot(void);
-void outputMndlbrtAvx (Texture * pixels, float center_x, float center_y);
 
 using namespace sf;
+void outputMndlbrtAvx (Image &image, float center_x, float center_y);
+void outputMndlbrt (Image &image, float center_x, float center_y);
 
 const int SIZE_OF_TEXT = 15;
-
-
 
 int main (void)
 {
@@ -36,12 +35,16 @@ int mandelbrot(void)
     float center_y = 0;
     float scale    = 1;
 
-    Clock clock; // for FPS
-    bool DRAW_MADL = 0;
+    sf::Image image;
+    image.create(WINDOW_SIZE_X, WINDOW_SIZE_Y, Color::Black);
 
-    Texture pixels;
-    pixels.create(WINDOW_SIZE_X, WINDOW_SIZE_Y);
-    outputMndlbrtAvx (&pixels, center_x, center_y);
+    sf::Texture texture;
+    texture.loadFromImage(image);
+
+    sf::Sprite sprite;
+    sprite.setTexture(texture);
+
+    Clock clock; // for FPS
 
     while (window.isOpen())
     {
@@ -49,27 +52,23 @@ int mandelbrot(void)
 
         if (Keyboard::isKeyPressed(Keyboard::Left))
         {
-            DRAW_MADL = 1;
-            center_x -= 0.1;
+            center_x -= 0.1*scale;
         } 
         if (Keyboard::isKeyPressed(Keyboard::Right))
         {
-            DRAW_MADL = 1;
-            center_x += 0.1;
+            center_x += 0.1*scale;
         }
         if (Keyboard::isKeyPressed(Keyboard::Up))
         {
-            DRAW_MADL = 1;
-            center_y += 0.1;
+            center_y += 0.1*scale;
         }
         if (Keyboard::isKeyPressed(Keyboard::Down))
         {
-            DRAW_MADL = 1;
-            center_y -= 0.1;
+            center_y -= 0.1*scale;
         }   
         if (Keyboard::isKeyPressed(Keyboard::F1))
         {
-            DRAW_MADL = 1;
+            scale /= 1.25;
             BORDER = BORDER*0.8;
             BORDER = BORDER*0.8;
             dx = (2*BORDER)/(WINDOW_SIZE_X);
@@ -78,7 +77,7 @@ int mandelbrot(void)
             
         if (Keyboard::isKeyPressed(Keyboard::F2))
         {
-            DRAW_MADL = 1;
+            scale *= 1.25;
             BORDER = BORDER*1.25;
             BORDER = BORDER*1.25;
             dx = (2*BORDER)/(WINDOW_SIZE_X);
@@ -95,88 +94,139 @@ int mandelbrot(void)
             }
         }
 
-        #ifdef AVX_ON
-            outputMndlbrtAvx(window, center_x, center_y);
-        
+        #ifdef AVX
+            outputMndlbrtAvx(image, center_x, center_y);
         #else
-            outputMndlbrt (window, center_x, center_y);
+            outputMndlbrt(image, center_x, center_y);
+        #endif
 
-        #endif  
-
-        sf::Time elapsedTime = clock.getElapsedTime();
+        Time elapsedTime = clock.getElapsedTime();
         char fps[100] = {0};
         sprintf(fps, "FPS: %.0f\n", 1 / elapsedTime.asSeconds());
         text.setString(fps);
         window.draw(text);
 
-        window.display();
         window.clear(Color::Black);
+
+        texture.update(image);
+
+        window.draw (sprite);
+        window.draw (text);
+
+        window.display();
     }
 
     return 0;
 }
 
-sf::RectangleShape createRectangle(float width, float height, float x, float y)
+void outputMndlbrtAvx (Image &image, float center_x, float center_y)
 {
-    sf::RectangleShape rectangle(sf::Vector2f(120, 50));
-    rectangle.setSize(Vector2f(width, height));
-    rectangle.setFillColor(Color::Green);
-    rectangle.setPosition(x, y);
+    __m256 max_rad_vec = _mm256_set1_ps(MAX_DISTANCE);
+    __m256 shift_dx = _mm256_set_ps (7*dx, 6*dx, 5*dx, 4*dx, 3*dx, 2*dx, dx, 0);
 
-    return rectangle;
-}
-
-void outputMndlbrt(RenderWindow &window, float center_x, float center_y)
-{
-    RectangleShape pixel = createRectangle(1, 1, 0, 0);
-
-    float x_min = -BORDER - center_x, x_max = BORDER - center_x;
-    float y_min = -BORDER - center_y, y_max = BORDER - center_y;
-
-    float shift_x = BORDER + center_x;
-    float shift_y = BORDER - center_y;
-
-    for (float y0 = -BORDER; y0 <= BORDER; y0 += dy)
+    for (int y0_pos = 0; y0_pos < WINDOW_SIZE_Y; y0_pos++)
     {
-        float y0_pos = (shift_y - y0) * WINDOW_SIZE_X/(2*BORDER); //((float)WINDOW_SIZE_Y/BORDER)
+        __m256 y0_vec = _mm256_set1_ps (((2*BORDER)/WINDOW_SIZE_Y)*y0_pos - BORDER + center_y);
 
-        for (float x0 = -BORDER; x0 <= BORDER; x0 += dx)
+        for (int x0_pos = 0; x0_pos < WINDOW_SIZE_X; x0_pos += 8)
         {
-            float x0_pos = (shift_x + x0) * WINDOW_SIZE_X/(2*BORDER); //((float)WINDOW_SIZE_X/BORDER)
-            int numIteration = 0;
+            __m256 x0_vec = _mm256_set1_ps (((2*BORDER)/WINDOW_SIZE_X)*x0_pos - BORDER + center_x);
+            x0_vec = _mm256_add_ps (x0_vec, shift_dx);
 
-            for (float x = x0, y = y0; numIteration < MAX_ITERATION; numIteration++)
+            __m256i numIteration = _mm256_set1_epi32(0);
+            int counter = 0;
+
+            for (__m256 x = x0_vec, y = y0_vec; counter < MAX_ITERATION; counter++)
             {
-                float x2 = x * x;
-                float y2 = y * y;
-                float xy = x * y;
+                __m256 x2_vec = _mm256_mul_ps(x, x);
+                __m256 y2_vec = _mm256_mul_ps(y, y);
+                __m256 xy_vec = _mm256_mul_ps(x, y);
 
-                float distToCenter = x2 + y2;
+                __m256 radius_vec = _mm256_add_ps (x2_vec, y2_vec);
 
-                if (distToCenter >= MAX_DISTANCE)
+                __m256 cmp_res = _mm256_cmp_ps (max_rad_vec, radius_vec, _CMP_GT_OS); // comparing each distance with max len
+                int comparison_mask = _mm256_movemask_ps(cmp_res);                   // moves the most significant bit of each float to integer bits
+
+                if (!comparison_mask)                                                // if all points out of range then break
                 {
                     break;
                 }
-                x = x2 - y2 + x0;
-                y = xy + xy + y0;
+
+                numIteration = _mm256_sub_epi32 (numIteration, _mm256_castps_si256 (cmp_res));
+
+                x = _mm256_add_ps(_mm256_sub_ps(x2_vec, y2_vec), x0_vec); 
+                y = _mm256_add_ps(_mm256_add_ps(xy_vec, xy_vec), y0_vec);
             }
-            pixel.setPosition(float(x0_pos), float(y0_pos));
-            pixel.setFillColor (Color(255, 242, 245));
-            if (numIteration < MAX_ITERATION)
+
+            uint32_t * iterationArray = (uint32_t *) &numIteration;
+            
+            int x_screen_pos = x0_pos;
+            int y_screen_pos = y0_pos;
+
+            #ifdef DRAW
+            for (int cntr = 0; cntr < 8; cntr++, x_screen_pos++)
             {
-                pixel.setFillColor(sf::Color((unsigned char)numIteration*30, (unsigned char)numIteration*5, 255 - (unsigned char)numIteration));
+                Color color;
+                
+                int n = iterationArray[cntr];
+
+                color = Color(255, 242, 245);
+
+                if (n < MAX_ITERATION)
+                {
+                    
+                    color = Color((uint8_t)n * 30, (uint8_t)n * 5, 255 - (uint8_t)n);
+                }
+                
+                image.setPixel(x_screen_pos, y_screen_pos, color); 
+
+            }
+            #endif
+        }
+    }  
+}
+
+void outputMndlbrt (Image &image, float center_x, float center_y)
+{
+    for (int y0_pos = 0; y0_pos < WINDOW_SIZE_Y; y0_pos++)
+    {
+        float y0 = ((2*BORDER)/WINDOW_SIZE_Y)*y0_pos - BORDER + center_y;
+
+        for (int x0_pos = 0; x0_pos < WINDOW_SIZE_X; x0_pos++)
+        {
+            float x0 = ((2*BORDER)/WINDOW_SIZE_X)*x0_pos - BORDER + center_x;
+            
+            int counter = 0;
+
+            for (float x = x0, y = y0; counter < MAX_ITERATION; counter++)
+            {
+                float x2 = x*x;
+                float y2 = y*y;
+                float xy = x*y;
+
+                float radius_vec = x2 + y2;
+
+                if (radius_vec >= MAX_DISTANCE)
+                {
+                    break;
+                }
+
+                x = x2 - y2 + x0; 
+                y = xy + xy + y0;
             }
 
             #ifdef DRAW
-                window.draw(pixel);
+            Color color;
+
+            color = Color(255, 242, 245);
+            if (counter < MAX_ITERATION)
+            {
+                
+                color = Color((uint8_t)n * 30, (uint8_t)n * 5, 255 - (uint8_t)n);
+            }
+
+            image.setPixel(x0_pos, y0_pos, color); 
             #endif
         }
     }
-}
-
-void outputMndlbrtAvx (Texture * pixels, float center_x, float center_y)
-{
-    assert (pixels);
-
-    
 }
