@@ -108,9 +108,11 @@ int mandelbrot(void)
 
         window.clear(Color::Black);
 
+        #ifdef DRAW
         texture.update(image);
 
         window.draw (sprite);
+        #endif 
         window.draw (text);
 
         window.display();
@@ -163,7 +165,7 @@ void outputMndlbrtAvx (Image &image, float center_x, float center_y)
             int x_screen_pos = x0_pos;
             int y_screen_pos = y0_pos;
 
-            #ifdef DRAW
+            
             for (int cntr = 0; cntr < 8; cntr++, x_screen_pos++)
             {
                 Color color;
@@ -177,11 +179,12 @@ void outputMndlbrtAvx (Image &image, float center_x, float center_y)
                     
                     color = Color((uint8_t)n * 30, (uint8_t)n * 5, 255 - (uint8_t)n);
                 }
-                
+                #ifdef DRAW
                 image.setPixel(x_screen_pos, y_screen_pos, color); 
+                #endif
 
             }
-            #endif
+            
         }
     }  
 }
@@ -215,17 +218,17 @@ void outputMndlbrt (Image &image, float center_x, float center_y)
                 y = xy + xy + y0;
             }
 
-            #ifdef DRAW
+            
             Color color;
 
             color = Color(255, 242, 245);
             if (counter < MAX_ITERATION)
             {
                 
-                color = Color((uint8_t)n * 30, (uint8_t)n * 5, 255 - (uint8_t)n);
+                color = Color((uint8_t)counter * 30, (uint8_t)counter * 5, 255 - (uint8_t)counter);
             }
-
-            image.setPixel(x0_pos, y0_pos, color); 
+            #ifdef DRAW
+                image.setPixel(x0_pos, y0_pos, color); 
             #endif
         }
     }
